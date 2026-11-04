@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="nm-session-token" content="__NM_TOKEN__">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>网络状况监测</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/echarts.min.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到监测内容</a>
+<header>
+  <div class="brand">
+    <span class="dot" id="statusDot"></span>
+    <h1>网络状况监测</h1>
+    <span class="status-text" id="statusText">连接中</span>
+    <span class="overall" id="overallInfo"></span>
+    <span id="storageStatus" class="form-error" role="status" aria-live="polite" hidden></span>
+  </div>
+  <div class="meta">
+    <span>运行 <b id="uptime">--</b></span>
+    <span>数据库 <b id="dbSize">--</b></span>
+    <button id="btnSound" class="btn" title="开关告警音效">🔔</button>
+    <button id="btnTheme" class="btn">浅色</button>
+    <button id="btnSettings" class="btn">设置</button>
+  </div>
+</header>
+
+<nav class="workspace-nav" aria-label="工作区导航">
+  <a href="#panelLatency">实时监测</a><a href="#probeMetrics">专项检测</a><a href="#historySection">历史记录</a><a href="#panelDiagnostics">诊断与建议</a>
+  <details id="displayOptions" class="display-options">
+    <summary>自定义界面</summary>
+    <div class="display-form">
+      <label>界面密度<select id="uiDensity" class="input"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+      <label>文字大小<select id="uiFont" class="input"><option value="16">标准</option><option value="18">大</option><option value="20">更大</option></select></label>
+      <label>目标表格位置<select id="uiLayout" class="input"><option value="stacked">图表上方（宽表格）</option><option value="split">图表左侧</option></select></label>
+      <label>图表高度<select id="uiChartHeight" class="input"><option value="320">标准</option><option value="440">加高</option><option value="560">更高</option></select></label>
+      <label>强调色<input id="uiAccent" type="color" value="#4da3ff"></label>
+      <label>左右布局表格宽度<input id="uiTableWidth" type="range" min="25" max="65" value="40" aria-label="表格宽度百分比"></label>
+      <fieldset id="columnOptions"><legend>表格列（可调整顺序）</legend></fieldset>
+      <details><summary>目标顺序与颜色</summary><div id="targetDisplayOptions"></div></details>
+      <div class="display-actions"><button id="exportDisplay" type="button" class="btn">导出界面方案</button><label class="btn" for="importDisplay">导入方案</label><input id="importDisplay" type="file" accept="application/json" hidden></div>
+      <label class="check-label"><input id="uiCards" type="checkbox">显示目标概览卡片</label>
+      <button id="resetDisplay" class="btn" type="button">恢复界面默认值</button>
+      <p class="hint">自动保存在当前浏览器；采样与目标请在「设置」中调整。</p>
+    </div>
+  </details>
+</nav>
+<main id="main">
+  <section class="cards" id="targetCards"></section>
+
+  <section class="metric-bar" id="metricBar"></section>
+
+  <section class="panel" id="panelLatency">
+    <div class="panel-head">
+      <span class="panel-title">目标与路径（点击行/卡片聚焦曲线）</span>
+      <span class="path" id="pathInfo">traceroute 中…</span>
+    </div>
+    <div class="target-layout">
+      <div class="table-wrap">
+        <table id="targetTable">
+          <thead>
+            <tr>
+              <th data-column="target" scope="col">目标</th><th data-column="current" scope="col" title="当前一轮的往返延迟">当前 ms</th><th data-column="avg" scope="col" title="最近可用实时样本的平均值（最多10分钟，受内存容量限制）">平均 ms</th><th data-column="mos" scope="col" title="经验公式估算，非实际通话测评">MOS 估算</th><th data-column="cv" scope="col" title="标准差与平均延迟之比">CV%</th><th data-column="loss" scope="col" title="最近设定统计轮数的丢包率">窗口丢包</th><th data-column="jitter" scope="col">抖动 ms</th><th data-column="availability" scope="col" title="最近可用实时样本中成功响应比例">响应率</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="layoutDivider" class="layout-divider" role="separator" tabindex="0" aria-label="调整表格和图表宽度" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="65" aria-valuenow="40"></div>
+      <div class="chart-wrap">
+        <div class="chart-ctrl-line">
+          <span class="panel-title">主图：延迟走势 · 点击图例开关曲线 · 拖动底部条块缩放时间范围</span>
+          <div class="ai-ctrl">
+            <select id="mainMetric" class="input ai-sel" title="主图指标">
+              <option value="latency">延迟 (ms)</option>
+              <option value="loss">丢包 (%)</option>
+              <option value="jitter">抖动 (ms)</option>
+              <option value="std">标准差 (ms)</option>
+              <option value="cv">CV 变异系数 (%)</option>
+              <option value="mos">MOS 语音质量 (1-5)</option>
+            </select>
+            <select id="axisMode" class="input ai-sel" title="纵轴刻度：对数轴能把 8ms 的网关和 2000ms 的尖峰画在同一张图里看得清">
+              <option value="log">纵轴对数</option>
+              <option value="typical">纵轴按常态</option>
+              <option value="extreme">纵轴含极值</option>
+            </select>
+            <label class="sr-only" for="viewWindow">主图显示时长</label><select id="viewWindow" class="input ai-sel"><option value="5">最近5分钟</option><option value="10" selected>最近10分钟</option><option value="30">最近30分钟</option><option value="60">最近1小时</option><option value="1440">最近24小时</option></select>
+            <button id="btnFollow" class="btn btn-sm">跟随最新</button>
+          </div>
+        </div>
+        <div id="viewRange" class="hint" aria-live="polite"></div>
+        <div id="chartLatency" class="chart-main"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid-metrics" id="probeMetrics" aria-label="专项检测">
+    <div class="panel" id="panelLoss">
+      <div class="panel-title">丢包率 %（拖动底部条块缩放）</div>
+      <div id="chartLoss" class="chart-sm"></div>
+    </div>
+    <div class="panel" id="panelJitter">
+      <div class="panel-title">抖动 ms（拖动底部条块缩放）</div>
+      <div id="chartJitter" class="chart-sm"></div>
+    </div>
+    <div class="panel" id="panelTraffic">
+      <div class="panel-title">网卡实时速率</div>
+      <div id="chartTraffic" class="chart-sm"></div>
+    </div>
+    <div class="panel" id="panelTcp">
+      <div class="panel-title">TCP 握手耗时 ms</div>
+      <div id="chartTcp" class="chart-sm"></div>
+    </div>
+    <div class="panel" id="panelDns">
+      <div class="panel-title">DNS 解析耗时 ms</div>
+      <div id="chartDns" class="chart-sm"></div>
+    </div>
+  </section>
+
+  <section id="historySection" class="section-toolbar" aria-label="历史记录控制">
+    <div><h2>历史记录</h2><p class="hint">历史范围同时决定主图可回看的数据；24小时内为分钟聚合，更早为小时聚合。CSV仅含已保存聚合，当前分钟见实时与分析摘要。</p></div>
+    <div class="toolbar-actions">
+      <label for="historyHours">范围</label><select id="historyHours" class="input"><option value="1">1 小时</option><option value="6">6 小时</option><option value="24" selected>24 小时</option><option value="168">7 天</option><option value="720">30 天</option></select>
+      <label for="exportMetric">导出内容</label><select id="exportMetric" class="input"><option value="ping">Ping</option><option value="tcp">TCP</option><option value="dns">DNS</option><option value="traffic">网卡流量</option></select>
+      <a id="exportHistory" class="btn" href="/api/export?metric=ping&amp;hours=24" download>导出 CSV</a>
+    </div>
+  </section>
+  <section class="grid-2">
+    <div class="panel" id="panelHistLat">
+      <div class="panel-title" id="historyLatencyTitle">24 小时延迟</div>
+      <div id="chartHistLat" class="chart"></div>
+    </div>
+    <div class="panel" id="panelHistLoss">
+      <div class="panel-title" id="historyLossTitle">24 小时丢包记录</div>
+      <div id="chartHistLoss" class="chart"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panelEvents">
+    <div class="panel-title">事件日志</div>
+    <ul id="eventList" class="events"></ul>
+  </section>
+
+  <section class="panel" id="panelDiagnostics">
+    <div class="panel-head"><div><h2 class="panel-title">本地诊断</h2><p class="hint">根据当前探测给出排查方向，无需 API Key。</p></div><button id="btnDiagnose" class="btn" type="button">检查当前状态</button></div>
+    <div id="diagnosticResult" class="diagnostic-result" aria-live="polite">点击检查，查看数据是否新鲜，以及哪些目标需要关注。</div>
+  </section>
+  <section class="panel" id="panelAI">
+    <div class="panel-head">
+      <span class="panel-title">AI 网络分析</span>
+      <div class="ai-ctrl">
+        <select aria-label="分析时间范围" id="aiScope" class="input ai-sel">
+          <option value="1">最近 1 小时</option>
+          <option value="6">最近 6 小时</option>
+          <option value="24">最近 24 小时</option>
+        </select>
+        <button id="btnPreviewAnalysis" class="btn" type="button">预览发送内容</button>
+        <button id="btnAIAnalyze" class="btn">生成分析</button>
+      </div>
+    </div>
+    <p class="hint">仅在点击生成时向DashScope发送下方可预览的目标、路径及事件摘要。调用次数受设置中的每日上限和间隔限制。</p>
+    <details id="analysisPreview"><summary>待发送摘要</summary><pre id="analysisPreviewText" class="ai-result"></pre></details>
+    <div id="aiResult" class="ai-result"><span class="ai-hint">点击「生成分析」调用 Qwen 对网络状况做总结评估</span></div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal-box modal-wide">
+    <div class="modal-top"><h3 id="settingsTitle" tabindex="-1">运行设置</h3><button id="btnCloseTop" class="btn" type="button" aria-label="关闭设置">关闭</button></div>
+    <div id="settingsError" class="form-error" role="alert" aria-live="assertive"></div>
+    <div class="settings-sections">
+      <div class="settings-col">
+        <h4>采样与告警</h4>
+        <div id="settingsForm"></div>
+      </div>
+      <div class="settings-col">
+        <h4>Ping 目标（分 IP 监测）</h4>
+        <ul id="targetList" class="target-list"></ul>
+        <div class="target-add">
+          <input id="newTargetName" aria-label="目标名称" placeholder="名称，如 我的服务器" class="input">
+          <input id="newTargetHost" aria-label="IP 或域名" placeholder="IP 或域名" class="input">
+          <button id="btnAddTarget" class="btn">添加</button>
+        </div>
+        <p class="hint">支持 IPv4 或域名；无 ICMP 响应也可保留监测。网关与发现的路径跳不可在此删除。</p>
+        <details id="protocolSettings" class="settings-group"><summary>专项检测目标与网卡（单独保存）</summary>
+          <fieldset><legend>TCP连接目标</legend><div id="tcpTargetEditor"></div><button id="addTcpTargetRow" class="btn" type="button">添加TCP目标</button></fieldset>
+          <label class="block-label" for="dnsServers">DNS服务器（每行一个IPv4）</label><textarea id="dnsServers" class="input" rows="3"></textarea>
+          <label class="block-label" for="dnsQueryHost">DNS查询域名</label><input id="dnsQueryHost" class="input" placeholder="example.com">
+          <label class="block-label" for="traceTargets">路径追踪目标（每行一个主机）</label><textarea id="traceTargets" class="input" rows="3"></textarea>
+          <label class="block-label" for="trafficInterface">流量统计网卡</label><select id="trafficInterface" class="input"><option value="">系统总计</option></select>
+          <p id="probeSettingsError" class="form-error" role="alert"></p><button id="saveProbeSettings" class="btn" type="button">保存专项检测</button>
+        </details>
+        <h4>AI 分析（DashScope）</h4>
+        <div class="settings-row">
+          <label for="aiKeyInput">API Key</label>
+          <input id="aiKeyInput" type="password" placeholder="sk-..." class="input" autocomplete="off">
+          <span class="unit"></span>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.25rem">
+          <button id="btnSaveAiKey" class="btn">保存 Key</button>
+          <button id="btnClearAiKey" class="btn">清除</button>
+        </div>
+        <p class="hint">Key仅保存在本机文件中；请勿将其加入分享或诊断包。保存Key后可先预览发送内容，再生成分析。</p>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="btnSave" class="btn" type="button">保存采样与告警</button>
+      <button id="btnClose" class="btn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/api_client.js"></script>
+<script src="/static/state_store.js"></script>
+<script src="/static/chart_model.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/customization.js"></script>
+</body>
+</html>

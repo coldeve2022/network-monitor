@@ -1,0 +1,9 @@
+{
+  "name": "network-monitor-qa",
+  "private": true,
+  "scripts": {
+    "test": "node tests/frontend_regression.cjs && node tests/runtime_contract.cjs",
+    "test:browser": "node tests/chart_contract_browser.cjs && node tests/ui_accessibility_browser.cjs"
+  },
+  "devDependencies": { "playwright": "1.62.1" }
+}

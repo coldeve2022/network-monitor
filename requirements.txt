@@ -1,0 +1,7 @@
+ping3>=4.0
+dnspython>=2.4
+psutil>=5.9
+fastapi>=0.110
+uvicorn>=0.29
+websockets>=12.0
+pyinstaller>=6.0
